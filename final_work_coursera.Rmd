@@ -1,0 +1,288 @@
+---
+title: "Fitabase"
+author: "Olena Urbanska"
+date: "2023-12-07"
+output: html_document
+---
+
+
+## R Markdown
+
+#
+
+Let's start with loading libraries for work 
+```{r}
+library(tidyverse)
+library(dplyr)
+library(readr)
+library(lubridate)
+library(ggplot2)
+library(tidyr)
+library(janitor)
+```
+
+
+Firstly, I've decided to explore information about daily rates, because with them we can figure out how many people from our sample use this device day-to-day. 
+
+Let's upload first data set "daily_steps" and see it's structure. Then we'll perform cleaning process.
+
+
+```{r}
+daily_steps1 <- read_csv("dailySteps_merged.csv")
+daily_steps <- clean_names(daily_steps1)
+head(daily_steps)
+
+```
+
+This data set contains 3 variable "id", "activity_day", "step_total". All 33 users 
+have used this build in feature.
+```{r}
+n_distinct(daily_steps$id)
+                          
+                      
+```
+
+Let's upload and examine data set "dailyActivity_merged.csv" to look through users 
+daily activity.
+
+```{r}
+daily_activity1 <- read_csv("dailyActivity_merged.csv")
+daily_activity <- clean_names(daily_activity1)
+glimpse(daily_activity)
+```
+
+In this step we find out average value for steps, distance and loss of calories.
+This will help us to understand is there a correlation between average steps fixed by 
+smart device and loss of calories. 
+
+
+```{r}
+steps_calories <- daily_activity %>% 
+  select(id, total_steps, total_distance, calories) %>% group_by(id) %>% 
+  summarize(avg_steps = mean(total_steps),
+             avg_distance = mean(total_distance),
+            avg_calories = mean(calories)) %>% arrange(avg_steps,avg_calories)
+head(steps_calories)
+```
+
+
+```{r}
+ggplot(data = steps_calories, mapping = aes(x = avg_steps, y = avg_calories)) + 
+  geom_point() +
+  geom_smooth()
+```
+With this visualization we can see that it is positive correlation between average steps and loosing of calories. So , we have found this trend , that people who walk more tend to lose more calories.
+
+As there is sometimes missing values, we replace 0 values as NA in column total_steps to make our calculation.
+```{r}
+daily_activity$total_steps[daily_activity$total_steps == 0] <- NA
+```
+
+Let's calculate information about average steps of all our users.
+
+```{r}
+steps_info <- daily_activity %>% 
+  summarize(min_steps = min(total_steps, na.rm = TRUE),
+            avg_steps = mean(total_steps, na.rm = TRUE),
+            medium_steps = median(total_steps, na.rm = TRUE),
+            max_steps = max(total_steps, na.rm = TRUE),
+            standart_deviation = sd(total_steps, na.rm = TRUE))
+steps_info
+```
+The mean (average) of a data set is found by adding all numbers in the data set and then dividing by the number of values in the set. The median is the middle value when a data set is ordered from least to greatest [link](https://www.khanacademy.org/)
+
+Most pedometers provide guidelines as per the 10,000-step protocol. You can, however, tweak your routine to clock 7,500 steps daily. Pedometers classify activity as follows:
+
+Sedentary: Less than 5,000 steps daily
+Low active: About 5,000 to 7,499 steps daily
+Somewhat active: About 7,500 to 9,999 steps daily
+Active: More than 10,000 steps daily
+Highly active: More than 12,500 steps daily
+Resource:[link](https://www.medicinenet.com/how_many_steps_a_day_is_considered_active/article.htm)
+
+High, or large, standard deviation indicates data are more spread out.
+
+Now we can make calculation with sedentary_minutes measurement to find out how much time users spend passive.
+
+```{r}
+daily_activity$sedentary_minutes[daily_activity$sedentary_minutes == 0] <- NA
+
+sedentary_info <- daily_activity %>% 
+  summarize(min_sedentary = min(sedentary_minutes, na.rm = TRUE)/60,
+            avg_sedentary = mean(sedentary_minutes, na.rm = TRUE)/60,
+            medium_sedentary = median(sedentary_minutes, na.rm = TRUE)/60,
+            max_sedentary = max(sedentary_minutes, na.rm = TRUE)/60)
+
+sedentary_info
+```
+In this output, I see some problems, because it can't be true, that people in average sleep 7 hours, walk 8000 steps and sit 16 hours. I may conclude, that in this smart device sleep and sedentary time summarized. If we subtract from the average sedentary time sleep time : 16.5 - 6.99 = 9.51 , this seems more realistic, as in average we have 8 hours working day.
+
+Let's count average step_total per month for every id in our list and include average sedentary time.
+
+```{r}
+# average steps by every id 
+average_steps_per_month <- daily_steps %>%
+  group_by(id) %>%
+  summarise(avg_steps = mean(step_total))
+
+# average sedentary time per month by every id 
+average_sedentary_per_month <- daily_activity %>%
+  group_by(id) %>%
+  summarise(avg_sedentary = mean(sedentary_minutes))
+
+
+#combine this two data sets to see is there any trends between this rates
+average_steps_sedentary <- merge(average_sedentary_per_month, average_steps_per_month, by = "id", all.x = TRUE)
+
+print(average_steps_sedentary)
+
+```
+Visualization of this data:
+
+```{r}
+ggplot(data = average_steps_sedentary) +
+geom_point(mapping = aes(x = avg_steps, y = avg_sedentary/60))
+```
+
+**With this visualization we can find also some trends**
+1. People who have high sedentary rate, tend to have less count of steps per day.
+2. People who have lower sedentary time tend to have more activity in steps daily.
+
+
+Now we upload another data set - Daily Intensities.
+```{r}
+intensities <- read_csv("dailyIntensities_merged.csv")
+head(intensities)
+```
+
+Now we upload information about sleep - Sleep Day merged, to explore more trends analyzing this information.
+
+```{r}
+
+sleep_day <- read_csv("sleepDay_merged.csv")
+sleep_day_df <- clean_names(sleep_day)
+head(sleep_day_df)
+```
+
+Replacing all 0 with NA:
+```{r}
+
+sleep_day_df[sleep_day_df == 0] <- NA
+
+```
+
+Calculating average information about all users:
+
+```{r}
+sleep_info <- sleep_day_df %>% mutate(time_not_asleep = (total_time_in_bed - total_minutes_asleep)) %>% 
+  summarize(min_sleep = min(total_minutes_asleep, na.rm = TRUE)/60,
+            avg_sleep = mean(total_minutes_asleep, na.rm = TRUE)/60,
+            medium_sleep = median(total_minutes_asleep, na.rm = TRUE)/60,
+            max_sleep = max(total_minutes_asleep, na.rm = TRUE)/60,
+            avg_time_not_asleep = mean(time_not_asleep))
+sleep_info
+```
+In average users sleep 7 hours, and in average it takes 40 minutes in bed not sleeping. With given to us information we can't know , is those 40 minutes people lying in bed before being asleep, or after awakening. Let's assume, that this 40 minutes people can't fall asleep.
+**Then we have another trend**:
+People, that use smart device in average can't fall asleep for 40 minutes.
+
+
+```{r}
+sleep_day_df <- mutate(sleep_day_df, time_not_asleep = (total_time_in_bed - total_minutes_asleep))
+sleep_day_df
+```
+
+
+```{r}
+ggplot(data = sleep_day_df) +
+  geom_point(mapping = aes(x = total_minutes_asleep, y = time_not_asleep )) + 
+  geom_smooth(mapping = aes(x = total_minutes_asleep, y = time_not_asleep ))
+```
+In this visualization we can observe, that people who sleep between 6 to 10 hours daily tend to fall asleep faster (from 1 up to 50 minutes), then those , who sleep 3 - 5 hours.
+
+
+Let's count users, who use another functions in smart device:
+
+
+
+```{r}
+weight_info <- read_csv("weightLogInfo_merged.csv")
+calories_info <- read_csv("dailyCalories_merged.csv")
+heartrate <- read_csv("heartrate_seconds_merged.csv")
+```
+
+
+```{r}
+n_distinct(weight_info$Id)
+n_distinct(daily_activity$id)
+n_distinct(daily_steps$id)
+n_distinct(intensities$Id)
+n_distinct(sleep_day$Id)
+n_distinct(calories_info$Id)
+n_distinct(heartrate$Id)
+```
+Besides we have gotten trends from analyzing data sets closely, we can get information about using smart device from counting distinct id in data sets that shows us different activities.
+so far, we can see those **trends**: 
+1. Only 26.6% of smart device users used function that looks after weight.
+2. Activity of all users was fixed by steps and calories indicator.
+3. 24 of users was wearing smart device, while sleeping.
+4. Smart device recorded information about heartbeat for 46% of users.
+
+Let's look closely to information about hourly steps.
+```{r}
+hourly_steps1 <- read_csv("hourlySteps_merged.csv")
+hourly_steps <- clean_names(hourly_steps1)
+head(hourly_steps)
+```
+
+
+Now we can find average steps total for all users for the whole week 
+
+```{r}
+average_steps_by_day_sum_of_all <- tapply(hourly_steps$step_total, factor(weekdays(as.Date(hourly_steps$activity_hour))), FUN = mean)
+
+average_steps_by_day <- (average_steps_by_day_sum_of_all)*24
+
+days_of_week <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+days_factor <- factor(names(average_steps_by_day), levels = days_of_week)
+
+sorted_average_steps <- average_steps_by_day[order(days_factor)]
+
+print(sorted_average_steps)
+
+
+```
+
+```{r}
+
+days_of_week <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+
+sorted_data <- data.frame(
+  Day = factor(names(sorted_average_steps), levels = days_of_week), 
+  Steps = sorted_average_steps
+)
+
+
+ggplot(sorted_data, aes(x = Day, y = Steps)) +
+  geom_bar(stat = "identity", fill = "skyblue", width = 0.7) +
+  labs(title = "Average Steps per Day of the Week", x = "Day", y = "Average Steps") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+So, let's summarize our data in trends.
+**Trends**:
+1.	Only 26.6% of smart device users used function that looks after weight.
+2.	Activity of all users was fixed by steps and calories indicator.
+3.	24 of 33 users was wearing smart device, while sleeping
+4.	Smart device recorded information about heartbeat for 46% of users.
+5.	Some people count calories and doesn’t count step, and reverse.
+**Trends among people, who use smart devices**:
+1.	Some people count calories and doesn’t count step.
+2.	People who have high sedentary rate, tend to have less count of steps per day.
+3.	People who have lower sedentary time tend to have more activity in steps daily.
+4.	People, that use smart device in average can't fall asleep for 40 minutes.
+5.	People who sleep between 6 to 10 hours daily tend to fall asleep, then those, who sleep 3 - 5 hours.
+
+
+
